@@ -8,24 +8,24 @@ from PyQt5 import QtCore
 from PyQt5 import QtWidgets
 import datetime as dt
 import time
+import csv
+import pandas as pd
 
 GREEN_LED = 'if_Green Ball_38793.png'
 RED_LED = 'if_Red Ball_38831.png'
 
-#class ThreadClass(QtCore.QThread):
-#    def __init__(self,parent=None):
-#        super(ThreadClass,self).__init__(parent)
-#    def run(self):
-#        val = 
+SAVEFILE = 'referencegases.csv'
+
+#fields = ['Ref1','Ref2','Ref3','Ref4','Ref5','Ref6','Ref7','Ref8']
+dfields = {'Ref1':[],'Ref2':[],'Ref3':[],'Ref4':[],'Ref5':[],'Ref6':[],'Ref7':[],'Ref8':[]}
+           
+
 
 class ValveApp(QtWidgets.QMainWindow, valve.Ui_MainWindow):
     def __init__(self):
-        # Explaining super is out of the scope of this article
-        # So please google it if you're not familar with it
-        # Simple reason why we use it here is that it allows us to
-        # access variables, methods etc in the design.py file
         super(self.__class__, self).__init__()
         
+        ## Set up variables
         self.numCycles = 0
         self.skipGas = [False]*8
         self.status = [False]*9
@@ -38,24 +38,52 @@ class ValveApp(QtWidgets.QMainWindow, valve.Ui_MainWindow):
         self.closeTime = dt.timedelta()
         self.override = False
         self.valveRunTime = 0
-        self.setupUi(self)  # This is defined in design.py file automatically
-                            # It sets up layout and widgets that are defined
+        
+        
+        ## Setup the User Interface
+        self.setupUi(self)  
+        
+        ## Connect the start button
         self.startButton.clicked.connect(self._start)
         
-#        self.ventButton.clicked.connect(self._start)
+        ## Connect the vent button
         self.ventButton.pressed.connect(self._open_vent)
         self.ventButton.released.connect(self._close_vent)
         
+        ## Connect the save reference button
+        self.refButton.clicked.connect(self._save_refs)
+        
+        ## Clear the progress
         self._set_progress()
+        
+        ## Clear the remaining time 
         self._set_timeremaining()
         
+        ## Set the valve index to invalid number
         self._valveIndex = -1
 
-#        self.timer = QtCore.QBasicTimer()
-#        self.timerVal = 0
+        ## Setup a timer
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self._timerEvent)
-#        self.timer.start(1000)
+        
+        ## Load reference gas values and populate form (if available)
+        try:
+            df = pd.read_csv(SAVEFILE)
+            for i in range(1,9):
+                print(df['Ref{}'.format(str(i))])
+                
+            self.ref1.setText(str(df['Ref{}'.format(str(1))][0]))
+            self.ref2.setText(str(df['Ref{}'.format(str(2))][0]))
+            self.ref3.setText(str(df['Ref{}'.format(str(3))][0]))
+            self.ref4.setText(str(df['Ref{}'.format(str(4))][0]))
+            self.ref5.setText(str(df['Ref{}'.format(str(5))][0]))
+            self.ref6.setText(str(df['Ref{}'.format(str(6))][0]))
+            self.ref7.setText(str(df['Ref{}'.format(str(7))][0]))
+            self.ref8.setText(str(df['Ref{}'.format(str(8))][0]))
+        except:
+            print("No saved file")
+        
+        
         
     def _start(self):
         print("Start")
@@ -84,90 +112,104 @@ class ValveApp(QtWidgets.QMainWindow, valve.Ui_MainWindow):
         ## Calculate the Total Run Time
         self.valveRunTime = self.flowTime + self.dwellTime
         
-        
-#        print(self.valveRunTime)
-        
+        ## Determine the valves to skip
         for i in range(len(self.skipGas)):
             if(self.skipGas[i] == False):
                 self.timeRemaining[i] = self.valveRunTime.total_seconds() 
             else:
                 self.timeRemaining[i] = 0
-#                self.timeRemaining = [self.valveRunTime.total_seconds()]*8
+        
+        ## Set the LCD values
         self._set_timeremaining()
         
+        ## Setup the offset and calculate the ESTIMATED completion time 
         offsetSeconds = dt.timedelta()
-        
         for i in range(len(self.timeRemaining)):
             offsetSeconds += dt.timedelta(seconds =self.timeRemaining[i])
-        
-#        offsetSeconds = sum(self.timeRemaining[:])
-        
         self.endTime = (self.startTime + offsetSeconds) 
         
         ## Get Close Time (VALVE 9)
         self.closeTime = dt.timedelta(hours = self.closeTimeBox.time().hour(),
                                      minutes = self.closeTimeBox.time().minute(),
                                      seconds = self.closeTimeBox.time().second())
-        
-        self.override = self.checkBox.isChecked()
-        
-        self.startTimeBox.setText(str(self.startTime))
-        self.endTimeBox.setText(str(self.endTime))
-        print(self.endTime)
-        
         self.exhaustCloseTime = self.valveRunTime.total_seconds() - self.closeTime.total_seconds()
         if(self.exhaustCloseTime < 0):
             self.exhaustCloseTime = 0
+            
+        ## Check the override
+        self.override = self.checkBox.isChecked()
+        
+        
+        ## Update the start and complete time fields
+        self.startTimeBox.setText(str(self.startTime))
+        self.endTimeBox.setText(str(self.endTime))
+        print("Estimated completion time: " + str(self.endTime))
+        
+
+        ## Lock the fields
+        
+        ## Enter the run phase
         self._run()
-        self.show()
+#        self.show()
         
+        ## Unlock the fields
         
+        ## Finish run
         self.endTimeBox.setText("COMPLETE")
-        print("Complete")
+        print("Complete Run")
         
     def _set_start_condition(self):
         pass
         
-    def run(self):
-        print("run")
-        if(self.override == True):
-            syscontrol.OpenValve(8)
-            self._set_status(8,True)
-            QtCore.QCoreApplication.processEvents()
-        for t in range(self.numCycles):
-            for i in range(8):
-                self._valveIndex = i
-                
-                if(self.skipGas[i] == False):
-                    syscontrol.OpenValve(i)
-                    self._set_status(i,True)
-                    if(self.override == False):
-                        syscontrol.OpenValve(8)
-                        self._set_status(8,True)
-                    while(self.timeRemaining[i] > self.dwellTime.total_seconds()):
-                        QtCore.QCoreApplication.processEvents()
-                        time.sleep(1)
-                    syscontrol.CloseValve(i)   
-                    self._set_status(i,False)
-                    while(self.timeRemaining[i] > 0):
-                        QtCore.QCoreApplication.processEvents()
-                        time.sleep(1)
+#    def run(self):
+#        print("run")
+#        if(self.override == True):
+#            syscontrol.OpenValve(8)
+#            self._set_status(8,True)
+#            QtCore.QCoreApplication.processEvents()
+#        for t in range(self.numCycles):
+#            for i in range(8):
+#                self._valveIndex = i
+#                
+#                if(self.skipGas[i] == False):
+#                    syscontrol.OpenValve(i)
+#                    self._set_status(i,True)
+#                    if(self.override == False):
+#                        syscontrol.OpenValve(8)
+#                        self._set_status(8,True)
+#                    while(self.timeRemaining[i] > self.dwellTime.total_seconds()):
+#                        QtCore.QCoreApplication.processEvents()
+#                        time.sleep(1)
+#                    syscontrol.CloseValve(i)   
+#                    self._set_status(i,False)
+#                    while(self.timeRemaining[i] > 0):
+#                        QtCore.QCoreApplication.processEvents()
+#                        time.sleep(1)
             
     def _run(self):
         print("run")
-        for i in range(8):
-            self._valveIndex = i
-            self.valveCompleteFlag = False
-            if(self.skipGas[i]==False):
-                syscontrol.OpenValve(8)
-                self._set_status(8,True)
-                syscontrol.OpenValve(i)
-                self.timer.start(1000)
-                self._set_status(i,True)
-                while(self.valveCompleteFlag == False):
-                    QtCore.QCoreApplication.processEvents()
-                    time.sleep(0.25)
-                self.timer.stop()
+        for t in range(self.numCycles):
+            for i in range(8):
+                self.progress[i] = 0
+                if(self.skipGas[i]==True):
+                    self.timeRemaining[i] = 0
+                else:
+                    self.timeRemaining[i] = self.valveRunTime.total_seconds()
+                
+            for i in range(8):
+
+                self._valveIndex = i
+                self.valveCompleteFlag = False
+                if(self.skipGas[i]==False):
+                    syscontrol.OpenValve(8)
+                    self._set_status(8,True)
+                    syscontrol.OpenValve(i)
+                    self.timer.start(1000)
+                    self._set_status(i,True)
+                    while(self.valveCompleteFlag == False):
+                        QtCore.QCoreApplication.processEvents()
+                        time.sleep(0.25)
+                    self.timer.stop()
         self._valveIndex = -1
     def _set_progress(self):
         self.progress1.setValue(self.progress[0])
@@ -240,11 +282,23 @@ class ValveApp(QtWidgets.QMainWindow, valve.Ui_MainWindow):
         syscontrol.CloseValve(8)   
         self._set_status(8,False)
         QtCore.QCoreApplication.processEvents()
-    def timerEvent(self):
-        if(self._valveIndex >= 0):
-            self.timeRemaining[self._valveIndex] -= 1
-            self._set_timeremaining()
-        QtCore.QCoreApplication.processEvents()
+    
+    def _save_refs(self):
+        print("Save Refs")
+#        values = {'Ref1':self.ref1.toPlainText(),'Ref2':self.ref2.toPlainText(),
+#                  'Ref3':self.ref3.toPlainText(),'Ref4':self.ref4.toPlainText(),
+#                  'Ref5':self.ref5.toPlainText(),'Ref6':self.ref6.toPlainText(),
+#                  'Ref7':self.ref7.toPlainText(),'Ref8':self.ref8.toPlainText()}
+        values = [self.ref1.toPlainText(),self.ref2.toPlainText(),
+                  self.ref3.toPlainText(),self.ref4.toPlainText(),
+                  self.ref5.toPlainText(),self.ref6.toPlainText(),
+                  self.ref7.toPlainText(),self.ref8.toPlainText()]
+
+        df = pd.DataFrame(columns=('Ref1','Ref2','Ref3','Ref4','Ref5','Ref6','Ref7','Ref8'))
+#        df2 = pd.DataFrame(values)
+        df.loc[1] = values
+        df.to_csv(SAVEFILE)
+        
 def main():
     app = QtWidgets.QApplication(sys.argv)  # A new instance of QApplication
     form = ValveApp()                 # We set the form to be our ExampleApp (design)
